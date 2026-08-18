@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
@@ -93,6 +93,8 @@ function App() {
   const [activeTopic, setActiveTopic] = useState(null);
   const [tab, setTab] = useState('analogy');
   const [level, setLevel] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [explainError, setExplainError] = useState('');
 
   const finishOnboarding = (nextAnswers) => {
     localStorage.setItem('eli5-profile', JSON.stringify(nextAnswers));
@@ -107,15 +109,44 @@ function App() {
     else setTimeout(() => setStep((s) => s + 1), 180);
   };
 
-  const explain = (value = topic) => {
-    const clean = value.trim().toLowerCase();
+  const explain = async (value = topic, requestedLevel) => {
+    const clean = value.trim();
     if (!clean) return;
-    const found = TOPICS[clean] || makeFallback(value.trim());
-    setActiveTopic(found);
-    setTopic(value.trim());
-    setTab(answers.memory === 'quiz' ? 'check' : answers.entry === 'map' || answers.memory === 'diagram' ? 'steps' : 'analogy');
-    setLevel(answers.pace === 'deep' ? 1 : 0);
+    const nextLevel = requestedLevel ?? (answers.pace === 'deep' ? 1 : answers.pace === 'quick' ? -1 : 0);
+    setTopic(clean);
+    setActiveTopic(null);
+    setExplainError('');
+    setLoading(true);
+    if (requestedLevel === undefined) {
+      setTab(answers.memory === 'quiz' ? 'check' : answers.entry === 'map' || answers.memory === 'diagram' ? 'steps' : 'analogy');
+    }
+    setLevel(nextLevel);
     setScreen('explain');
+    try {
+      const endpoint = import.meta.env.VITE_API_URL || '/api/explain';
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: clean, profile: answers, detail: ['tiny', 'clear', 'deeper'][nextLevel + 1] })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.gist || !payload.check) throw new Error(payload.error || 'The live explanation service is not connected.');
+      setActiveTopic({ ...payload, color: topicColor(clean), source: 'ai' });
+    } catch (error) {
+      const authoredDemo = TOPICS[clean.toLowerCase()];
+      if (authoredDemo) {
+        setActiveTopic({ ...authoredDemo, source: 'demo' });
+      } else {
+        setExplainError(error.message || 'We could not create that explanation.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const changeLevel = (nextLevel) => {
+    if (nextLevel === level || loading) return;
+    explain(topic, nextLevel);
   };
 
   const restart = () => {
@@ -130,7 +161,7 @@ function App() {
       {screen === 'onboarding' && <Onboarding step={step} answers={answers} onChoose={choose} onBack={() => step ? setStep(step - 1) : setScreen('welcome')} />}
       {screen === 'profile' && <Profile answers={answers} onContinue={() => setScreen('home')} />}
       {screen === 'home' && <Home answers={answers} topic={topic} setTopic={setTopic} onExplain={explain} restart={restart} />}
-      {screen === 'explain' && <Explanation data={activeTopic} answers={answers} tab={tab} setTab={setTab} level={level} setLevel={setLevel} onBack={() => setScreen('home')} />}
+      {screen === 'explain' && <Explanation data={activeTopic} answers={answers} topic={topic} tab={tab} setTab={setTab} level={level} onLevelChange={changeLevel} loading={loading} error={explainError} onRetry={() => explain(topic, level)} onBack={() => setScreen('home')} />}
     </main>
   );
 }
@@ -204,13 +235,20 @@ function Home({ answers, topic, setTopic, onExplain, restart }) {
   </section>;
 }
 
-function Explanation({ data, answers, tab, setTab, level, setLevel, onBack }) {
+function Explanation({ data, topic, tab, setTab, level, onLevelChange, loading, error, onRetry, onBack }) {
   const [picked, setPicked] = useState(null);
-  const detail = level > 0 ? `${data.gist} The important point is that this is a process, not a single object or event — each part changes what can happen next.` : data.gist;
-  useEffect(() => setPicked(null), [data]);
+  const [feedback, setFeedback] = useState('');
+  useEffect(() => { setPicked(null); setFeedback(''); }, [data]);
+  if (!data) return <GenerationState topic={topic} level={level} loading={loading} error={error} onRetry={onRetry} onBack={onBack} />;
+  const detail = data.gist;
+  const tryAnotherWay = () => {
+    const modes = ['analogy', 'steps', 'why', 'check'];
+    setTab(modes[(modes.indexOf(tab) + 1) % modes.length]);
+    setFeedback('another');
+  };
   return <section className="explanation page-shell" style={{ '--topic': data.color }}>
     <button className="back-button explanation-back" onClick={onBack}><Arrow direction="left" /> Ask something else</button>
-    <div className="explain-head"><div><div className="eyebrow"><span>✦</span> Made simple, your way</div><h1>{data.title}</h1><p>{data.kicker}</p></div><div className="level-control"><span>Detail</span><button className={level === -1 ? 'active' : ''} onClick={() => setLevel(-1)}>Tiny</button><button className={level === 0 ? 'active' : ''} onClick={() => setLevel(0)}>Clear</button><button className={level === 1 ? 'active' : ''} onClick={() => setLevel(1)}>Deeper</button></div></div>
+    <div className="explain-head"><div><div className="eyebrow"><span>✦</span> {data.source === 'demo' ? 'Authored demo — live AI not connected' : 'Generated for your learning style'}</div><h1>{data.title}</h1><p>{data.kicker}</p></div><div className="level-control"><span>Detail</span><button className={level === -1 ? 'active' : ''} onClick={() => onLevelChange(-1)}>Tiny</button><button className={level === 0 ? 'active' : ''} onClick={() => onLevelChange(0)}>Clear</button><button className={level === 1 ? 'active' : ''} onClick={() => onLevelChange(1)}>Deeper</button></div></div>
     <article className="gist-card"><span className="gist-label">The one-line version</span><h2>{level === -1 ? data.gist.split('.')[0] + '.' : detail}</h2><span className="sound-mark">)))</span></article>
     <nav className="explain-tabs" aria-label="Explanation format">
       {[['analogy', '◎', 'Analogy'], ['steps', '↳', 'Step by step'], ['why', '✦', 'Why it matters'], ['check', '?', 'Check I got it']].map(([id, icon, label]) => <button key={id} onClick={() => setTab(id)} className={tab === id ? 'active' : ''}><span>{icon}</span>{label}</button>)}
@@ -219,9 +257,32 @@ function Explanation({ data, answers, tab, setTab, level, setLevel, onBack }) {
       {tab === 'analogy' && <div className="analogy-layout"><div><span className="content-label">Picture it like this</span><h3>{data.analogy}</h3><p className="tailored-note"><Spark small /> We started with a comparison because that’s how you like to meet new ideas.</p></div><ConceptArt title={data.title} /></div>}
       {tab === 'steps' && <div><span className="content-label">Four small steps</span><ol className="steps-list">{data.steps.map((s, i) => <li key={s}><span>{i + 1}</span><p>{s}</p></li>)}</ol></div>}
       {tab === 'why' && <div className="why-panel"><span className="content-label">The “so what?”</span><h3>{data.why}</h3><div className="quote-mark">“</div></div>}
-      {tab === 'check' && <div className="quiz-panel"><span className="content-label">One quick check</span><h3>{data.check.q}</h3><div className="quiz-options">{data.check.options.map((x, i) => <button className={picked === null ? '' : i === data.check.correct ? 'correct' : picked === i ? 'wrong' : ''} key={x} onClick={() => setPicked(i)}><span>{String.fromCharCode(65 + i)}</span>{x}</button>)}</div>{picked !== null && <p className="quiz-result">{picked === data.check.correct ? 'Yes — that’s it. It clicked! ✦' : 'Not quite. Try the answer that matches the core idea above.'}</p>}</div>}
+      {tab === 'check' && <div className="quiz-panel"><span className="content-label">One quick check</span><h3>{data.check.q}</h3><div className="quiz-options">{data.check.options.map((x, i) => <button className={picked === null ? '' : i === data.check.correct ? 'correct' : picked === i ? 'wrong' : ''} key={x} onClick={() => setPicked(i)}><span>{String.fromCharCode(65 + i)}</span>{x}</button>)}</div>{picked !== null && <p className="quiz-result">{picked === data.check.correct ? `Yes — that’s it. ${data.check.explanation || 'It clicked! ✦'}` : `Not quite. ${data.check.explanation || 'Try the answer that matches the core idea above.'}`}</p>}</div>}
     </div>
-    <div className="explain-footer"><span>Was this clear?</span><button>Yes, it clicked</button><button>Almost</button><button>Try another way</button></div>
+    <div className="explain-footer"><span>{feedback === 'yes' ? 'Lovely — it clicked ✦' : feedback === 'almost' ? 'That helps us tune the next one' : feedback === 'another' ? 'Here’s another angle' : 'Was this clear?'}</span><button className={feedback === 'yes' ? 'selected' : ''} onClick={() => setFeedback('yes')}>Yes, it clicked</button><button className={feedback === 'almost' ? 'selected' : ''} onClick={() => setFeedback('almost')}>Almost</button><button onClick={tryAnotherWay}>Try another way</button></div>
+  </section>;
+}
+
+function GenerationState({ topic, level, loading, error, onRetry, onBack }) {
+  return <section className="generation-state page-shell">
+    <button className="back-button explanation-back" onClick={onBack}><Arrow direction="left" /> Ask something else</button>
+    <div className="generation-card">
+      {loading ? <>
+        <div className="thinking-orbit"><span /><i /><b>✦</b></div>
+        <div className="eyebrow"><span>✦</span> Building this around how you learn</div>
+        <h1>Making sense of<br /><em>{topic}</em></h1>
+        <p>Finding the core idea, a useful comparison, four clear steps and one quick way to check it clicked.</p>
+        <div className="generation-progress"><i /></div>
+        <small>{level === -1 ? 'Keeping it tiny' : level === 1 ? 'Adding one useful layer of depth' : 'Clear, with just enough detail'}</small>
+      </> : <>
+        <div className="service-icon">↯</div>
+        <div className="eyebrow"><span>✦</span> The idea is ready — the connection isn’t</div>
+        <h1>Live explanations<br /><em>need a backend.</em></h1>
+        <p>{error || 'The explanation service has not been connected yet.'}</p>
+        <button className="button button--dark" onClick={onRetry}>Try the connection again <Arrow /></button>
+        <small className="service-note">Your learning profile is saved. Once the secure API is connected, this screen will generate the full explanation.</small>
+      </>}
+    </div>
   </section>;
 }
 
@@ -238,6 +299,12 @@ function makeFallback(value) {
     why: `Understanding ${value} gives you a useful mental model — a way to recognise it, ask better questions and connect it to ideas you already know.`,
     check: { q: `What is the best first move when learning about ${value}?`, options: ['Memorise every detail', 'Find the core idea', 'Avoid examples'], correct: 1 }
   };
+}
+
+function topicColor(value) {
+  const colors = ['#8f8cff', '#ff9d76', '#5fc5a7', '#ffd447', '#73b8ef'];
+  const hash = [...value].reduce((total, character) => total + character.charCodeAt(0), 0);
+  return colors[hash % colors.length];
 }
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);

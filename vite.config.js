@@ -3,5 +3,5 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base: '/eli5app/'
+  base: process.env.VERCEL ? '/' : '/eli5app/'
 });
