@@ -21,3 +21,7 @@ npm run dev
 ```
 
 Create a production build with `npm run build`.
+
+## Live app
+
+The `main` branch deploys automatically to [alanrodmell.github.io/eli5app](https://alanrodmell.github.io/eli5app/) through GitHub Pages.
