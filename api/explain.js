@@ -1,3 +1,4 @@
+import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
@@ -16,6 +17,8 @@ const Explanation = z.object({
     explanation: z.string()
   })
 });
+
+const { $schema: _schemaVersion, ...ExplanationJsonSchema } = z.toJSONSchema(Explanation);
 
 const ALLOWED_ORIGINS = new Set([
   'https://alanrodmell.github.io',
@@ -52,6 +55,56 @@ function profileDescription(profile = {}) {
   return `${entry}; ${memory}`;
 }
 
+function explanationInstructions(profile, detailGuide) {
+  return `You create accurate, warm explanations for curious adults. Never sound childish or condescending. Begin with the core mental model, use ordinary language, define unavoidable technical terms, and favour concrete examples. The learner ${profileDescription(profile)}. ${detailGuide} The analogy must illuminate the real mechanism and briefly acknowledge where it stops matching. The four steps must form a causal sequence. The quiz must test the central idea, not trivia. Return plain text without Markdown inside each response field.`;
+}
+
+export async function generateWithGemini({ topic, profile, detailGuide }, client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })) {
+  const interaction = await client.interactions.create({
+    model: process.env.GEMINI_MODEL || 'gemini-3.7-flash',
+    store: false,
+    system_instruction: explanationInstructions(profile, detailGuide),
+    input: `Explain this topic: ${topic}`,
+    generation_config: {
+      thinking_level: 'low',
+      max_output_tokens: 1400
+    },
+    response_format: [{
+      type: 'text',
+      mime_type: 'application/json',
+      schema: ExplanationJsonSchema
+    }]
+  }, { timeout: 25000, maxRetries: 1 });
+
+  return Explanation.parse(JSON.parse(interaction.output_text));
+}
+
+async function generateWithOpenAI({ topic, profile, detailGuide }) {
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const result = await client.responses.parse({
+    model: process.env.OPENAI_MODEL || 'gpt-5.6-luna',
+    store: false,
+    reasoning: { effort: 'low' },
+    max_output_tokens: 1400,
+    input: [
+      {
+        role: 'system',
+        content: explanationInstructions(profile, detailGuide)
+      },
+      {
+        role: 'user',
+        content: `Explain this topic: ${topic}`
+      }
+    ],
+    text: {
+      verbosity: 'low',
+      format: zodTextFormat(Explanation, 'personalised_explanation')
+    }
+  });
+
+  return result.output_parsed;
+}
+
 export default async function handler(request, response) {
   const origin = request.headers.origin;
   const configuredOrigin = process.env.APP_ORIGIN;
@@ -73,7 +126,7 @@ export default async function handler(request, response) {
   if (typeof topic !== 'string' || topic.trim().length < 2 || topic.trim().length > 180) {
     return response.status(400).json({ error: 'Please enter a topic between 2 and 180 characters.' });
   }
-  if (!process.env.OPENAI_API_KEY) {
+  if (!process.env.GEMINI_API_KEY && !process.env.OPENAI_API_KEY) {
     return response.status(503).json({ error: 'The explanation service has not been connected yet.' });
   }
 
@@ -83,31 +136,13 @@ export default async function handler(request, response) {
     deeper: 'Add one layer of useful nuance and explain important cause-and-effect relationships.'
   }[detail] || 'Give enough context to understand the mechanism while avoiding jargon.';
 
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
   try {
-    const result = await client.responses.parse({
-      model: process.env.OPENAI_MODEL || 'gpt-5.6-luna',
-      store: false,
-      reasoning: { effort: 'low' },
-      max_output_tokens: 1400,
-      input: [
-        {
-          role: 'system',
-          content: `You create accurate, warm explanations for curious adults. Never sound childish or condescending. Begin with the core mental model, use ordinary language, define unavoidable technical terms, and favour concrete examples. The learner ${profileDescription(profile)}. ${detailGuide} The analogy must illuminate the real mechanism and briefly acknowledge where it stops matching. The four steps must form a causal sequence. The quiz must test the central idea, not trivia. Return plain text without Markdown.`
-        },
-        {
-          role: 'user',
-          content: `Explain this topic: ${topic.trim()}`
-        }
-      ],
-      text: {
-        verbosity: 'low',
-        format: zodTextFormat(Explanation, 'personalised_explanation')
-      }
-    });
+    const input = { topic: topic.trim(), profile, detailGuide };
+    const explanation = process.env.GEMINI_API_KEY
+      ? await generateWithGemini(input)
+      : await generateWithOpenAI(input);
 
-    return response.status(200).json(result.output_parsed);
+    return response.status(200).json(explanation);
   } catch (error) {
     console.error('Explanation generation failed', error);
     const status = error?.status === 429 ? 429 : 500;
