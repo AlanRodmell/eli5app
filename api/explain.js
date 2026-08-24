@@ -61,12 +61,12 @@ function explanationInstructions(profile, detailGuide) {
 
 export async function generateWithGemini({ topic, profile, detailGuide }, client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })) {
   const interaction = await client.interactions.create({
-    model: process.env.GEMINI_MODEL || 'gemini-3.7-flash',
+    model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
     store: false,
     system_instruction: explanationInstructions(profile, detailGuide),
     input: `Explain this topic: ${topic}`,
     generation_config: {
-      thinking_level: 'low',
+      thinking_level: 'minimal',
       max_output_tokens: 1400
     },
     response_format: [{
@@ -74,7 +74,7 @@ export async function generateWithGemini({ topic, profile, detailGuide }, client
       mime_type: 'application/json',
       schema: ExplanationJsonSchema
     }]
-  }, { timeout: 25000, maxRetries: 1 });
+  }, { timeout: 30000, maxRetries: 0 });
 
   return Explanation.parse(JSON.parse(interaction.output_text));
 }

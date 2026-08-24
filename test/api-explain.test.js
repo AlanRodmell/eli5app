@@ -40,9 +40,9 @@ test('Gemini generation preserves the API response contract', async () => {
   }, client);
 
   assert.deepEqual(result, explanation);
-  assert.equal(request.model, 'gemini-3.7-flash');
+  assert.equal(request.model, 'gemini-3.5-flash-lite');
   assert.equal(request.store, false);
-  assert.equal(request.generation_config.thinking_level, 'low');
+  assert.equal(request.generation_config.thinking_level, 'minimal');
   assert.equal(request.response_format[0].mime_type, 'application/json');
   assert.equal(request.response_format[0].schema.properties.steps.minItems, 4);
   assert.match(request.system_instruction, /connects new ideas to familiar comparisons/);

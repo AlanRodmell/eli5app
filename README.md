@@ -27,7 +27,7 @@ Create a production build with `npm run build`.
 The API handler at `api/explain.js` is designed for a Vercel serverless deployment. It keeps provider keys on the server, validates the generated structure, limits topic length, restricts browser origins, and applies a lightweight rate limit.
 
 1. Import this GitHub repository into Vercel.
-2. Add `GEMINI_API_KEY` to the Vercel project environment variables for Production, Preview, and Development as needed. The default model is `gemini-3.7-flash`; override it with `GEMINI_MODEL`.
+2. Add `GEMINI_API_KEY` to the Vercel project environment variables for Production, Preview, and Development as needed. The low-latency default model is `gemini-3.5-flash-lite`; override it with `GEMINI_MODEL`.
 3. To use OpenAI as a fallback, add `OPENAI_API_KEY` and optionally set `OPENAI_MODEL` (the default is `gpt-5.6-luna`). Set `APP_ORIGIN` to the production site origin.
 4. Redeploy after changing environment variables.
 
