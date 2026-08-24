@@ -27,11 +27,11 @@ Create a production build with `npm run build`.
 The API handler at `api/explain.js` is designed for a Vercel serverless deployment. It keeps the OpenAI key on the server, validates the generated structure, limits topic length, restricts browser origins, and applies a lightweight rate limit.
 
 1. Import this GitHub repository into Vercel.
-2. Add `OPENAI_API_KEY` to the Vercel project environment variables.
-3. Optionally set `OPENAI_MODEL` (the default is `gpt-5.4-nano`) and `APP_ORIGIN`.
-4. Deploy the project and copy its `/api/explain` URL.
-5. Add that full URL to this GitHub repository as an Actions variable named `VITE_API_URL`.
-6. Run the Pages workflow again.
+2. Add `OPENAI_API_KEY` to the Vercel project environment variables for Production, Preview, and Development as needed.
+3. Optionally set `OPENAI_MODEL` (the cost-conscious default is `gpt-5.6-luna`) and set `APP_ORIGIN` to the production site origin.
+4. Redeploy after changing environment variables.
+
+When the whole app is hosted on Vercel, the browser calls the same-origin `/api/explain` route automatically; `VITE_API_URL` is not required. It is only needed when the frontend is hosted separately, such as on GitHub Pages. In that case, set it to the full Vercel endpoint URL and rebuild the frontend.
 
 For local full-stack development, copy `.env.example` to `.env.local`, fill in the key, and run the project through `vercel dev`. Never add the real key to Git or to a `VITE_` environment variable.
 

@@ -87,7 +87,9 @@ export default async function handler(request, response) {
 
   try {
     const result = await client.responses.parse({
-      model: process.env.OPENAI_MODEL || 'gpt-5.4-nano',
+      model: process.env.OPENAI_MODEL || 'gpt-5.6-luna',
+      store: false,
+      reasoning: { effort: 'low' },
       max_output_tokens: 1400,
       input: [
         {
@@ -100,6 +102,7 @@ export default async function handler(request, response) {
         }
       ],
       text: {
+        verbosity: 'low',
         format: zodTextFormat(Explanation, 'personalised_explanation')
       }
     });
